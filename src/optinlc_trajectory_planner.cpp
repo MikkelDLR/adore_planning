@@ -48,7 +48,7 @@ OptiNLCTrajectoryPlanner::setup_constraints( OptiNLC_OCP<double, input_size, sta
 
   // Define a simple input update method
   ocp.setInputUpdate( [&]( const VECTOR<double, state_size>&, const VECTOR<double, input_size>& input, double, void* ) {
-    VECTOR<double, input_size> update_input = { input[ddDELTA] };
+    VECTOR<double, input_size> update_input = { input[dDELTA] };
     return update_input;
   } );
 
@@ -59,7 +59,7 @@ OptiNLCTrajectoryPlanner::setup_constraints( OptiNLC_OCP<double, input_size, sta
     state_constraints[V]      = max_reverse_speed;
     state_constraints[S]      = 0.0;
     state_constraints[DELTA]  = -limits.max_steering_angle;
-    state_constraints[dDELTA] = -max_steering_velocity;
+    //state_constraints[dDELTA] = -max_steering_velocity;
     return state_constraints;
   } );
 
@@ -68,20 +68,20 @@ OptiNLCTrajectoryPlanner::setup_constraints( OptiNLC_OCP<double, input_size, sta
     state_constraints.setConstant( std::numeric_limits<double>::infinity() );
     state_constraints[V]      = max_forward_speed;
     state_constraints[DELTA]  = limits.max_steering_angle;
-    state_constraints[dDELTA] = max_steering_velocity;
+    //state_constraints[dDELTA] = max_steering_velocity;
     return state_constraints;
   } );
 
   // Input Constraints
   ocp.setUpdateInputLowerBounds( [&]( const VECTOR<double, state_size>&, const VECTOR<double, input_size>& ) {
     VECTOR<double, input_size> input_constraints;
-    input_constraints[ddDELTA] = -max_steering_acceleration;
+    input_constraints[dDELTA] = -max_steering_velocity;
     return input_constraints;
   } );
 
   ocp.setUpdateInputUpperBounds( [&]( const VECTOR<double, state_size>&, const VECTOR<double, input_size>& ) {
     VECTOR<double, input_size> input_constraints;
-    input_constraints[ddDELTA] = max_steering_acceleration;
+    input_constraints[dDELTA] = max_steering_velocity;
     return input_constraints;
   } );
 
@@ -122,9 +122,13 @@ OptiNLCTrajectoryPlanner::plan_trajectory( const map::Route& latest_route, const
   auto                          start_time      = std::chrono::high_resolution_clock::now();
   
   // Initial state and input
-  VECTOR<double, input_size> initial_input = { 0.0 };
+  if (current_state.vx < 0.25)
+  {
+    steering_rate = 0.0;
+  }
+  VECTOR<double, input_size> initial_input = { current_state.steering_rate };
   VECTOR<double, state_size> initial_state = {
-    current_state.x, current_state.y, current_state.yaw_angle, current_state.vx, current_state.steering_angle, 0.0, 0.0, 0.0
+    current_state.x, current_state.y, current_state.yaw_angle, current_state.vx, current_state.steering_angle, 0.0, 0.0
   };
   
   // Create an MPC problem (OCP)
@@ -153,6 +157,7 @@ OptiNLCTrajectoryPlanner::plan_trajectory( const map::Route& latest_route, const
   solver.solve( current_state.time, initial_state, initial_input );
 
   auto   opt_x                   = solver.get_optimal_states();
+  auto   opt_u                   = solver.get_optimal_inputs();
   auto   time                    = solver.getTime();
   double last_objective_function = solver.get_final_objective_function();
 
@@ -164,7 +169,7 @@ OptiNLCTrajectoryPlanner::plan_trajectory( const map::Route& latest_route, const
   for( size_t i = 0; i < control_points; i++ )
   {
     if( last_objective_function > threshold_bad_output || opt_x[i * state_size + V] > max_forward_speed
-        || opt_x[i * state_size + V] < max_reverse_speed || std::abs( opt_x[i * state_size + dDELTA] ) > max_steering_velocity )
+        || opt_x[i * state_size + V] < max_reverse_speed || std::abs( opt_u[i * input_size + dDELTA] ) > max_steering_velocity )
     {
       bad_condition  = true;
       bad_counter   += 1;
@@ -253,7 +258,7 @@ OptiNLCTrajectoryPlanner::plan_trajectory( const map::Route& latest_route, const
     state.yaw_angle      = opt_x[i * state_size + PSI];
     state.vx             = opt_x[i * state_size + V];
     state.steering_angle = opt_x[i * state_size + DELTA];
-    state.steering_rate  = opt_x[i * state_size + dDELTA];
+    state.steering_rate  = opt_u[i * input_size + dDELTA];
     state.time           = time[i];
     if( i < control_points - 1 )
     {
@@ -268,17 +273,18 @@ OptiNLCTrajectoryPlanner::plan_trajectory( const map::Route& latest_route, const
   // Calculate time taken
   auto                          end_time        = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> elapsed_seconds = end_time - start_time;
-
   // Log cost, time taken, and convergence status
   if( bad_condition == false && bad_counter < 5 || iteration == 0 )
   {
     previous_trajectory = planned_trajectory;
     bad_counter         = 0;
-    iteration           = 1;
+    iteration = 1;
+    steering_rate = planned_trajectory.states[1].steering_rate;
     return planned_trajectory;
   }
   else
   {
+    steering_rate = previous_trajectory.states[1].steering_rate;
     return previous_trajectory;
   }
 }

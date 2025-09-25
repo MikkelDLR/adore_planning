@@ -59,17 +59,16 @@ public:
     PSI,
     V,
     DELTA,
-    dDELTA,
     S,
     L
   };
 
   enum CONTROLS
   {
-    ddDELTA
+    dDELTA
   };
 
-  static constexpr int    state_size       = 8;
+  static constexpr int    state_size       = 7;
   static constexpr int    input_size       = 1;
   static constexpr int    control_points   = 30;
   static constexpr double sim_time         = 3.0; // Simulation time for the Planner
@@ -103,17 +102,45 @@ private:
   double max_steering_acceleration = 0.5;
   double max_acceleration          = 2.0;  // Maximum acceleration 2.0 m/s²
   double max_deceleration          = 5.5;  // Maximum deceleration 2.5 m/s²
-
   double min_distance_in_route     = 0.1;
   double position_smoothing_factor = 0.9;
   double heading_smoothing_factor  = 0.9;
   double threshold_bad_output      = 5.0; // value of cost function above which is considered bad
 
-
   // Variables to store previous commands
   double  bad_counter         = 0;
   bool    bad_condition       = false;
   int     iteration           = 0;
+
+  // Curvature based velocity calculation members
+  double              maximum_velocity   = 5.0; // Maximum set velocity
+  double              reference_velocity = 5.0; // Reference velocity for planner
+  double              lookahead_time     = 4.0; // 3 seconds lookahead for curvature
+  double              distance_moved     = 0.0;
+  std::vector<double> curvature_behind;
+  double              look_behind_for_curvature = 3.0; // 3 meters look behind for curvature based speed reduction
+  int                 distance_to_add_behind    = 1;
+  int                 safe_index                = 10;  // safe index for curvature
+  double              lateral_acceleration      = 0.75; // max lateral acceleration 1.0 m/s²
+  double              minimum_velocity_in_curve = 1.5; // min velocity in a curve 2 m/s²
+
+  // IDM related members
+  double min_distance_to_vehicle_ahead = 10.0; // 10 meters minimum gap to vehicle in front
+  double desired_time_headway          = 1.5;  // 1.5 seconds time headway
+  double front_vehicle_velocity        = 0.0;  // temporary, TODO -> Get from traffic participants list
+  double max_acceleration              = 2.0;  // Maximum acceleration 2.0 m/s²
+  double max_deceleration              = 2.5;  // Maximum deceleration 2.5 m/s²
+  double tau                           = 2.5;  // first order velocity profile
+  double distance_to_goal              = 100.0;
+  int    prediction_horizon            = 40; // 40 points for 4 seconds prediction horizon
+
+  // Variables to store previous commands
+  double               last_steering_angle = 0.0;
+  double               last_acceleration   = 0.0;
+  double               bad_counter         = 0;
+  double steering_rate = 1.0;
+  int iteration = 0;
+  bool                 bad_condition       = false;
   dynamics::Trajectory previous_trajectory;
 
   // Variables to convert route to piecewise polynomial function
@@ -137,6 +164,15 @@ private:
 
   // Helper function to set up route to follow to piecewise polynomial
   void setup_reference_trajectory( prediction_to_piecewise_polynomial& ego_prediction );
+
+  void setup_reference_route( route_to_piecewise_polynomial& reference_route );
+
+  // Helper function to get reference velocity
+  std::vector<double> compute_curvatures( const dynamics::VehicleStateDynamic& current_state );
+  void   setup_reference_velocity( const map::Route& latest_route, const dynamics::VehicleStateDynamic& current_state,
+                                   const map::Map& latest_map, const dynamics::TrafficParticipantSet& traffic_participants );
+  double calculate_idm_velocity( const map::Route& latest_route, const dynamics::VehicleStateDynamic& current_state,
+                                 const map::Map& latest_map, const dynamics::TrafficParticipantSet& traffic_participants );
 
   // Helper function to set up the solver and solve the problem
   bool solve_mpc( OptiNLC_OCP<double, input_size, state_size, constraints_size, control_points>& ocp,

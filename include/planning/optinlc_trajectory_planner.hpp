@@ -39,6 +39,12 @@ namespace adore
 {
 namespace planner
 {
+struct route_to_piecewise_polynomial
+{
+  adore::math::PiecewisePolynomial::PiecewiseStruct x;
+  adore::math::PiecewisePolynomial::PiecewiseStruct y;
+  adore::math::PiecewisePolynomial::PiecewiseStruct heading;
+};
 
 struct prediction_to_piecewise_polynomial
 {
@@ -128,8 +134,6 @@ private:
   double min_distance_to_vehicle_ahead = 10.0; // 10 meters minimum gap to vehicle in front
   double desired_time_headway          = 1.5;  // 1.5 seconds time headway
   double front_vehicle_velocity        = 0.0;  // temporary, TODO -> Get from traffic participants list
-  double max_acceleration              = 2.0;  // Maximum acceleration 2.0 m/s²
-  double max_deceleration              = 2.5;  // Maximum deceleration 2.5 m/s²
   double tau                           = 2.5;  // first order velocity profile
   double distance_to_goal              = 100.0;
   int    prediction_horizon            = 40; // 40 points for 4 seconds prediction horizon
@@ -137,10 +141,7 @@ private:
   // Variables to store previous commands
   double               last_steering_angle = 0.0;
   double               last_acceleration   = 0.0;
-  double               bad_counter         = 0;
   double steering_rate = 1.0;
-  int iteration = 0;
-  bool                 bad_condition       = false;
   dynamics::Trajectory previous_trajectory;
 
   // Variables to convert route to piecewise polynomial function

@@ -23,6 +23,7 @@
 #include "adore_map/route.hpp"
 #include "adore_math/curvature.hpp"
 
+#include "controllers/controller.hpp"
 #include "dynamics/comfort_settings.hpp"
 #include "dynamics/physical_vehicle_parameters.hpp"
 #include "dynamics/traffic_participant.hpp"
@@ -98,7 +99,8 @@ private:
 };
 
 static adore::dynamics::Trajectory
-generate_trajectory_from_speed_profile( const SpeedProfile& speed_profile, const map::Route& route, double time_step = 0.1 )
+generate_trajectory_from_speed_profile( const SpeedProfile& speed_profile, const map::Route& route,
+                                        const dynamics::VehicleStateDynamic& start_state, double time_step = 0.1 )
 {
   adore::dynamics::Trajectory initial_trajectory;
   double                      accumulated_time = 0.0;
@@ -127,13 +129,9 @@ generate_trajectory_from_speed_profile( const SpeedProfile& speed_profile, const
     state.vx        = v1;
     state.time      = accumulated_time;
 
+    accumulated_time += delta_s / ( ( v1 + v2 ) / 2.0 ); // average speed for time calculation
 
-    // Add to the initial trajectory
-
-    // Integrate time using the segment speed (average of v1 and v2)
-    double avg_speed  = ( v1 + v2 ) / 2.0;
-    accumulated_time += ( avg_speed > 1e-3 ) ? delta_s / avg_speed : 0.0;
-    state.ax          = speed_profile.s_to_acc.lower_bound( s2 )->second;
+    state.ax = ( v2 - v1 ) / ( accumulated_time - state.time ); // simple acceleration estimate
 
     initial_trajectory.states.push_back( state );
 
@@ -143,13 +141,18 @@ generate_trajectory_from_speed_profile( const SpeedProfile& speed_profile, const
 
   // Re-interpolate to constant time intervals using `get_state_at_time`
   adore::dynamics::Trajectory trajectory;
-  double                      final_time = accumulated_time;
 
-  for( double t = 0.0; t <= final_time; t += time_step )
+  dynamics::VehicleStateDynamic current_state = start_state;
+
+  // try to follow trajectory with PID controller
+  for( double t = 0.0; t <= initial_trajectory.states.back().time; t += time_step )
   {
-    auto interpolated_state = initial_trajectory.get_state_at_time( t );
-    trajectory.states.push_back( interpolated_state );
+    current_state = initial_trajectory.get_state_at_time( t );
+    trajectory.states.push_back( current_state );
   }
+
+
+  std::cerr << "Generated trajectory with " << trajectory.states.size() << " states." << std::endl;
 
   return trajectory;
 }

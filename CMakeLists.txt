@@ -5,6 +5,7 @@ project(adore_planning VERSION 0.0.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Dependencies
 find_package(ament_cmake REQUIRED)
@@ -39,7 +40,7 @@ target_include_directories(${PROJECT_NAME}
 
 # Link dependencies (PRIVATE visibility preferred)
 target_link_libraries(${PROJECT_NAME}
-  PRIVATE
+  PUBLIC
     osqp::osqp
     OsqpEigen::OsqpEigen
     OpenDrive::OpenDrive
@@ -48,8 +49,6 @@ target_link_libraries(${PROJECT_NAME}
     adore_math::adore_math
     adore_dynamics::adore_dynamics
     adore_controllers::adore_controllers
-
-
 )
 
 # Export target to make find_package(adore_math) work in other packages
@@ -74,7 +73,7 @@ install(EXPORT export_${PROJECT_NAME}
 
 # ament exports for ROS 2 packages
 ament_export_include_directories(include)
-ament_export_dependencies(osqp OsqpEigen OpenDrive MultiAgentSolver)
+ament_export_dependencies(osqp OsqpEigen OpenDrive MultiAgentSolver adore_dynamics adore_map adore_math adore_controllers)
 ament_export_targets(export_${PROJECT_NAME})
 
 ament_package()

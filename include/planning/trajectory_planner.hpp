@@ -62,7 +62,7 @@ private:
   } weights;
 
   double dt              = 0.1;
-  size_t horizon_steps   = 30;
+  size_t horizon_steps   = 60;
   double ref_traj_length = 200;
 
   std::shared_ptr<mas::OCP>     problem;

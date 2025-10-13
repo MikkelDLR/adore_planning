@@ -113,7 +113,25 @@ TrajectoryPlanner::plan_route_trajectory( const map::Route& latest_route, const 
   speed_profile.generate_from_route_and_participants( latest_route, traffic_participants, current_state.vx, initial_s, current_state.time,
                                                       ref_traj_length );
 
-  auto ref_traj = generate_trajectory_from_speed_profile( speed_profile, latest_route, dt );
+  auto ref_traj = generate_trajectory_from_speed_profile( speed_profile, latest_route, current_state, dt );
+
+  // use pid to follow trajectory to get control inputs
+  controllers::PID pid;
+  pid.model        = dynamics::PhysicalVehicleModel();
+  pid.model.params = vehicle_params;
+
+  auto guess_state = current_state;
+  guess_state.time = 0.0;
+
+  for( auto& state : ref_traj.states )
+  {
+    auto command          = pid.get_next_vehicle_command( ref_traj, guess_state );
+    state.ax              = command.acceleration;
+    state.steering_angle  = command.steering_angle;
+    guess_state           = dynamics::integrate_rk4( guess_state, command, dt, pid.model.motion_model );
+    guess_state.time     += dt;
+  }
+
 
   return optimize_trajectory( current_state, ref_traj );
 }
@@ -125,7 +143,10 @@ TrajectoryPlanner::optimize_trajectory( const dynamics::VehicleStateDynamic& cur
   reference_trajectory = ref_traj;
   setup_problem();
   solve_problem();
-  return extract_trajectory();
+  auto out_trajectory = extract_trajectory();
+  std::cerr << "ref traj " << ref_traj << std::endl;
+  std::cerr << "out traj " << out_trajectory << std::endl;
+  return out_trajectory;
 }
 
 void
@@ -147,7 +168,7 @@ TrajectoryPlanner::solve_problem() // THIS ONE WORKS
   // first pass with collocation
   solve_with( mas::OSQPCollocation{}, 50 );
   // then refine with CGD
-  solve_with( mas::iLQR{}, 10 );
+  // solve_with( mas::iLQR{}, 80 );
 }
 
 dynamics::Trajectory
@@ -196,6 +217,16 @@ TrajectoryPlanner::setup_problem()
   problem->stage_cost         = make_trajectory_cost( reference_trajectory );
 
   problem->initial_state << start_state.x, start_state.y, start_state.yaw_angle, start_state.vx;
+
+  // initialize best guess controls from reference trajectory
+  problem->initial_controls = mas::ControlTrajectory::Zero( problem->control_dim, problem->horizon_steps );
+  for( size_t i = 0; i < problem->horizon_steps; ++i )
+  {
+    double t                          = i * dt;
+    auto   ref                        = reference_trajectory.get_state_at_time( t );
+    problem->initial_controls( 1, i ) = ref.ax; // steering
+    problem->initial_controls( 0, i ) = ref.steering_angle;
+  }
   problem->initialize_problem();
   problem->verify_problem();
 }

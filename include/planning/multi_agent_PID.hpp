@@ -1,17 +1,16 @@
 /********************************************************************************
- * Copyright (C) 2017-2025 German Aerospace Center (DLR).
- * Eclipse ADORe, Automated Driving Open Research https://eclipse.org/adore
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation
+ *
+ * See the NOTICE file(s) distributed with this work for additional
+ * information regarding copyright ownership.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0.
+ * https://www.eclipse.org/legal/epl-2.0
  *
  * SPDX-License-Identifier: EPL-2.0
- *
- * Contributors:
- *    Giovanni Lucente
- *    Marko Mizdrak
  ********************************************************************************/
+
 #pragma once
 
 #include <cmath>
@@ -23,6 +22,7 @@
 #include <Eigen/Dense>
 
 #include "adore_map/map.hpp"
+#include "adore_math/angles.h"
 
 #include "dynamics/traffic_participant.hpp"
 #include "dynamics/trajectory.hpp"
@@ -34,43 +34,54 @@ namespace planner
 {
 using MotionModel = std::function<dynamics::VehicleStateDynamic( const dynamics::VehicleStateDynamic&, const dynamics::VehicleCommand& )>;
 
+struct MultiAgendPIDReponse
+{
+  int    overview_state;
+  double overview_obstacle_distance;
+};
+
 class MultiAgentPID
 {
 public:
 
   MultiAgentPID();
 
-  void set_parameters( const std::map<std::string, double>& params );
-  void plan_trajectories( dynamics::TrafficParticipantSet& traffic_participant_set );
+  void                 set_parameters( const std::map<std::string, double>& params );
+  MultiAgendPIDReponse plan_trajectories( dynamics::TrafficParticipantSet& traffic_participant_set );
 
 
-  double       desired_acceleration        = 1.0;
-  double       desired_deceleration        = 1.0;
+  double       desired_acceleration        = 2.0;
+  double       desired_deceleration        = 3.0;
   double       max_lateral_acceleration    = 0.5;
-  int          number_of_integration_steps = 60;
-  double       dt                          = 0.1;
+  int          number_of_integration_steps = 120;
+  double       dt                          = 0.05;
   const double min_point_distance          = 0.05;
-  double       max_speed                   = 5.0;
+  double       max_allowed_speed           = 10.0;
+  double       max_speed                   = 10.0;
 
   double obstacle_avoidance_offset_threshold = 1.0;
   double k_yaw                               = 8.0;
   double k_distance                          = 2.0;
-  double k_speed                             = 0.5;
+  double k_speed                             = 0.6;
   double k_goal_point                        = 10.0;
   double k_obstacle_avoidance_longitudinal   = 0.0;
   double k_obstacle_avoidance_lateral        = 2.0;
   double k_sigmoid                           = 5.0;
+  double k_lateral_acc                       = 3.5;
 
   double lane_width   = 4.0;
-  double min_distance = 3.0;
+  double min_distance = 7.0;
   double time_headway = 3.0;
+
+  std::unordered_map<int, double> traffic_light_distances;
 
 private:
 
   dynamics::VehicleStateDynamic   get_current_state( const dynamics::TrafficParticipant& participant );
   adore::dynamics::VehicleCommand compute_vehicle_command( const adore::dynamics::VehicleStateDynamic&   current_state,
                                                            const adore::dynamics::TrafficParticipantSet& traffic_participant_set,
-                                                           const int                                     id );
+                                                           const int id, const double& traffic_light_distance, int& overview_status,
+                                                           double& overview_object_distance );
 
   std::pair<double, double> compute_lane_following_errors( const dynamics::VehicleStateDynamic& current_state,
                                                            const dynamics::TrafficParticipant&  participant );

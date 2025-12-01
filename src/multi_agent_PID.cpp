@@ -17,7 +17,6 @@
 
 #include "adore_math/curvature.hpp"
 #include "adore_math/point.h"
-#include "adore_math/spline.h"
 
 #include "dynamics/integration.hpp"
 #include "dynamics/vehicle_state.hpp"

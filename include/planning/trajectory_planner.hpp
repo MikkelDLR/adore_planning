@@ -77,7 +77,7 @@ private:
 
   double dt              = 0.1;
   size_t horizon_steps   = 40;
-  double ref_traj_length = 200;
+  double ref_traj_length = 100;
 
   std::shared_ptr<mas::OCP> problem;
   dynamics::Trajectory      reference_trajectory; // Reference trajectory for the planner

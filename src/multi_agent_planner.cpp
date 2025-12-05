@@ -13,6 +13,8 @@
 
 #include "planning/multi_agent_planner.hpp"
 
+#include "planning/planning_helpers.hpp"
+
 namespace adore
 {
 namespace planner
@@ -209,10 +211,86 @@ MultiAgentPlanner::create_single_ocp( size_t id )
       }
     }
   }
+  // -------------------------
+  // Fast single-agent trajectory to warm-start controls
+  // -------------------------
+  dynamics::Trajectory fast_traj;
+
+  const bool have_existing_traj = ( participant.trajectory && !participant.trajectory->states.empty() );
+
+  if( !have_existing_traj && participant.route && !participant.route->reference_line.empty() )
+  {
+    // 1) Build waypoint list along the route ahead of the vehicle
+    std::vector<map::MapPoint> points;
+    const double               s0    = s;
+    const double               s_max = s0 + static_cast<double>( horizon_steps ) * dt * max_speed;
+
+    for( const auto& [s_ref, mp] : participant.route->reference_line )
+    {
+      if( s_ref + 0.5 < s0 )
+        continue;
+      if( s_ref > s_max )
+        break;
+      points.push_back( mp );
+    }
+
+    if( points.size() >= 2 )
+    {
+      // 2) Build simple physical model (kinematic bicycle)
+      dynamics::PhysicalVehicleModel model;
+      model.params       = participant.physical_parameters;
+      model.motion_model = [params = model.params]( const dynamics::VehicleStateDynamic& x, const dynamics::VehicleCommand& u ) {
+        return dynamics::kinematic_bicycle_model( x, params, u );
+      };
+
+      // 3) Other traffic as obstacles (remove self)
+      dynamics::TrafficParticipantSet others = traffic_participants;
+      others.participants.erase( id );
+
+      // 4) Target speed for the warm-start
+      const double guess_speed = std::max( 1.0, std::min( max_speed, state.vx > 0.0 ? state.vx : 8.0 ) );
+
+      fast_traj = waypoints_to_trajectory( state, points, others, model, guess_speed,
+                                           dt // same dt as planner
+      );
+    }
+  }
+
+  // -------------------------
+  // Initialize controls
+  // -------------------------
+  if( !fast_traj.states.empty() )
+  {
+    // Prefer fast single-agent warm-start if available
+    problem.initial_controls = mas::ControlTrajectory::Zero( problem.control_dim, problem.horizon_steps );
+
+    const std::size_t steps = std::min<std::size_t>( problem.horizon_steps, fast_traj.states.size() );
+
+    for( std::size_t t = 0; t < steps; ++t )
+    {
+      const auto& st                   = fast_traj.states[t];
+      problem.initial_controls( 0, t ) = st.steering_angle;
+      problem.initial_controls( 1, t ) = st.ax;
+    }
+  }
+  else if( have_existing_traj )
+  {
+    // Fall back to existing trajectory on the participant, if provided
+    problem.initial_controls = mas::ControlTrajectory::Zero( problem.control_dim, problem.horizon_steps );
+
+    for( std::size_t t = 0; t < problem.horizon_steps; ++t )
+    {
+      if( t < participant.trajectory->states.size() )
+      {
+        const auto& traj_state           = participant.trajectory->states[t];
+        problem.initial_controls( 0, t ) = traj_state.steering_angle;
+        problem.initial_controls( 1, t ) = traj_state.ax;
+      }
+    }
+  }
 
 
   problem.initialize_problem();
-  problem.verify_problem();
   return problem;
 }
 

@@ -111,7 +111,7 @@ MultiAgentPID::plan_trajectories( dynamics::TrafficParticipantSet& traffic_parti
       dynamics::VehicleCommand vehicle_command           = dynamics::VehicleCommand( 0.0, 0.0 );
       double                   distance_to_traffic_light = std::numeric_limits<double>::max();
       traffic_light_distances[id]                        = distance_to_traffic_light;
-      if( ( id == 777 || participant.v2x_id.has_value() ) && ( participant.route && !participant.route->center_lane.empty() ) )
+      if( ( id == 777 || participant.v2x_id.has_value() ) && ( participant.route && !participant.route->reference_line.empty() ) )
       {
         double current_ego_s = participant.route->get_s( current_state );
         for( double i = 0; i < 100.0; i++ )
@@ -129,7 +129,7 @@ MultiAgentPID::plan_trajectories( dynamics::TrafficParticipantSet& traffic_parti
         }
       }
 
-      if( participant.route && !participant.route->center_lane.empty() )
+      if( participant.route && !participant.route->reference_line.empty() )
       {
         vehicle_command = compute_vehicle_command( current_state, traffic_participant_set, id, traffic_light_distances[id], overview_status,
                                                    overview_obstacle_distance );
@@ -412,18 +412,18 @@ MultiAgentPID::compute_target_speed_components( const dynamics::VehicleStateDyna
   double          distance_to_object = distance_vector.norm();
 
   // Compute lane-aligned vectors
-  double          s_object         = route.get_s( other_participant_state );
-  auto            pose_center_lane = route.get_pose_at_s( s_object );
-  Eigen::Vector2d center_lane_versor( std::cos( pose_center_lane.yaw ), std::sin( pose_center_lane.yaw ) );
+  double          s_object            = route.get_s( other_participant_state );
+  auto            pose_reference_line = route.get_pose_at_s( s_object );
+  Eigen::Vector2d reference_line_versor( std::cos( pose_reference_line.yaw ), std::sin( pose_reference_line.yaw ) );
 
   // Compute angle between lane direction and distance vector
-  double theta           = std::atan2( distance_vector.y(), distance_vector.x() ) - pose_center_lane.yaw;
+  double theta           = std::atan2( distance_vector.y(), distance_vector.x() ) - pose_reference_line.yaw;
   double theta_2         = 2 * theta;
   double inv_distance_sq = 1.0 / ( distance_to_object * distance_to_object );
   double coeff           = object_radius * object_radius * U_speed * inv_distance_sq;
 
   // Fluidodynamic target speeds
-  Eigen::Vector2d target_speed = U_speed * center_lane_versor - coeff * Eigen::Vector2d( std::cos( theta_2 ), std::sin( theta_2 ) );
+  Eigen::Vector2d target_speed = U_speed * reference_line_versor - coeff * Eigen::Vector2d( std::cos( theta_2 ), std::sin( theta_2 ) );
 
   // Compute vehicle-aligned longitudinal and lateral speeds
   Eigen::Vector2d yaw_versor( std::cos( current_state.yaw_angle ), std::sin( current_state.yaw_angle ) );

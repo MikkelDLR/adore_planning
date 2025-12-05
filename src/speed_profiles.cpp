@@ -77,13 +77,13 @@ SpeedProfile::generate_from_route_and_participants( const map::Route& route, con
   std::map<double, double> s_to_curvature = calculate_curvature_speeds( route, initial_s, length );
 
   // Initialize starting conditions
-  auto   it          = route.center_lane.lower_bound( initial_s );
+  auto   it          = route.reference_line.lower_bound( initial_s );
   double s_curr      = it->first;
   s_to_speed[s_curr] = initial_speed;
 
-  auto end_it = std::prev( route.center_lane.lower_bound( initial_s + length ) );
+  auto end_it = std::prev( route.reference_line.lower_bound( initial_s + length ) );
 
-  if( it == route.center_lane.end() )
+  if( it == route.reference_line.end() )
   {
     return;
   }
@@ -108,7 +108,7 @@ void
 SpeedProfile::backward_pass( MapPointIter& previous_it, const adore::map::Route& route, double initial_s, MapPointIter& current_it,
                              double length )
 {
-  while( previous_it != route.center_lane.lower_bound( initial_s ) )
+  while( previous_it != route.reference_line.lower_bound( initial_s ) )
   {
     double s_prev  = previous_it->first;
     double s_curr  = current_it->first;
@@ -126,7 +126,7 @@ SpeedProfile::backward_pass( MapPointIter& previous_it, const adore::map::Route&
       s_to_acc[s_prev]   = -idm_acc;
     }
 
-    if( previous_it == route.center_lane.begin() )
+    if( previous_it == route.reference_line.begin() )
     {
       break;
     }
@@ -224,14 +224,14 @@ SpeedProfile::calculate_curvature_speeds( const adore::map::Route& route, double
 {
   std::map<double, double> s_to_curvature;
 
-  if( route.center_lane.size() < 3 )
+  if( route.reference_line.size() < 3 )
   {
     std::cerr << "Route has less than 3 points, cannot speed profile\n";
     return s_to_curvature;
   }
 
-  auto begin_it = std::next( route.center_lane.lower_bound( initial_s ) );
-  auto end_it   = route.center_lane.upper_bound( initial_s + length );
+  auto begin_it = std::next( route.reference_line.lower_bound( initial_s ) );
+  auto end_it   = route.reference_line.upper_bound( initial_s + length );
 
   for( auto it = begin_it; std::next( it ) != end_it; ++it )
   {

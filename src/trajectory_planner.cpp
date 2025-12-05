@@ -118,7 +118,8 @@ dynamics::Trajectory
 TrajectoryPlanner::plan_route_trajectory( const map::Route& latest_route, const dynamics::VehicleStateDynamic& current_state,
                                           const dynamics::TrafficParticipantSet& traffic_participants )
 {
-  double       initial_s = latest_route.get_s( current_state );
+  double initial_s = latest_route.get_s( current_state );
+
   SpeedProfile speed_profile;
   speed_profile.set_vehicle_parameters( vehicle_params );
   speed_profile.set_comfort_settings( comfort_settings );
@@ -128,7 +129,7 @@ TrajectoryPlanner::plan_route_trajectory( const map::Route& latest_route, const 
 
   auto ref_traj = generate_trajectory_from_speed_profile( speed_profile, latest_route, current_state, dt );
 
-  // use pid to follow trajectory to get initial guess inputs
+  // PID-based initial guess
   controllers::PurePursuit pid;
   pid.model        = dynamics::PhysicalVehicleModel();
   pid.model.params = vehicle_params;
@@ -138,7 +139,7 @@ TrajectoryPlanner::plan_route_trajectory( const map::Route& latest_route, const 
 
   dynamics::Trajectory initial_guess;
 
-  for( auto& state : ref_traj.states )
+  for( size_t i = 0; i < horizon_steps; ++i )
   {
     auto command               = pid.get_next_vehicle_command( ref_traj, guess_state );
     guess_state.ax             = command.acceleration;
@@ -146,7 +147,6 @@ TrajectoryPlanner::plan_route_trajectory( const map::Route& latest_route, const 
     initial_guess.states.push_back( guess_state );
     guess_state = dynamics::integrate_rk4( guess_state, command, dt, pid.model.motion_model );
   }
-
 
   return optimize_trajectory( current_state, ref_traj, initial_guess );
 }
@@ -165,7 +165,7 @@ TrajectoryPlanner::optimize_trajectory( const dynamics::VehicleStateDynamic& cur
 }
 
 void
-TrajectoryPlanner::solve_problem() // THIS ONE WORKS
+TrajectoryPlanner::solve_problem()
 {
   mas::SolverParams params;
   params["max_iterations"] = solver_params.max_iterations;

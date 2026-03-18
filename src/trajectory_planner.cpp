@@ -58,10 +58,16 @@ TrajectoryPlanner::set_parameters( const std::map<std::string, double>& params )
 }
 
 void
-TrajectoryPlanner::set_comfort_settings( const std::shared_ptr<dynamics::ComfortSettings>& settings )
+TrajectoryPlanner::set_comfort_settings( const dynamics::ComfortSettings& settings )
 {
   comfort_settings = settings;
-  comfort_settings->clamp( vehicle_params );
+  comfort_settings.clamp( vehicle_params );
+}
+
+dynamics::PhysicalVehicleParameters
+TrajectoryPlanner::get_physical_vehicle_parameters()
+{
+  return vehicle_params;
 }
 
 void

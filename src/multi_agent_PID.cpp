@@ -73,12 +73,13 @@ MultiAgentPID::get_current_state( const dynamics::TrafficParticipant& participan
 }
 
 MultiAgendPIDReponse
-MultiAgentPID::plan_trajectories( dynamics::TrafficParticipantSet& traffic_participant_set )
+MultiAgentPID::plan_trajectories_and_maneuvers( dynamics::TrafficParticipantSet& traffic_participant_set )
 {
   max_speed = max_allowed_speed;
   for( auto& [id, participant] : traffic_participant_set.participants )
   {
     participant.trajectory = dynamics::Trajectory();
+    participant.maneuver_advice.reset();
   }
   // Precompute motion model lambdas for each participant.
   std::map<int, MotionModel> motion_models;
@@ -131,8 +132,42 @@ MultiAgentPID::plan_trajectories( dynamics::TrafficParticipantSet& traffic_parti
 
       if( participant.route && !participant.route->reference_line.empty() )
       {
-        vehicle_command = compute_vehicle_command( current_state, traffic_participant_set, id, traffic_light_distances[id], overview_status,
-                                                   overview_obstacle_distance );
+        const double route_s = participant.route->get_s( current_state );
+        const double route_end_distance = participant.route->get_length() - route_s;
+        const double stop_distance = std::min( route_end_distance, distance_to_traffic_light );
+        const auto [obstacle_distance, obstacle_speed, obstacle_offset] =
+          compute_distance_speed_offset_nearest_obstacle( traffic_participant_set, id );
+
+        if( id == 777 || participant.v2x_id.has_value() )
+        {
+          overview_obstacle_distance = obstacle_distance;
+          if( distance_to_traffic_light < route_end_distance && distance_to_traffic_light < 20 )
+            overview_status = 3;
+          if( route_end_distance < obstacle_distance && route_end_distance < 20 )
+            overview_status = 2;
+          if( obstacle_distance < 10 )
+            overview_status = 1;
+          max_speed = max_allowed_speed;
+        }
+        else
+        {
+          max_speed = participant.state.vx + 1e-4;
+        }
+
+        vehicle_command = compute_vehicle_command( current_state, participant, route_s, stop_distance, obstacle_distance, obstacle_speed );
+
+        if( i == 0 )
+        {
+          if( stop_distance < obstacle_distance && stop_distance < 20.0 )
+            participant.maneuver_advice = dynamics::ManeuverAdvice{ dynamics::Stop, 0.0, std::max( 0.0, stop_distance ) };
+          else if( obstacle_distance <= min_distance + 3.0 && obstacle_speed < 0.5 )
+            participant.maneuver_advice = dynamics::ManeuverAdvice{ dynamics::Stop, 0.0, obstacle_distance };
+          else if( obstacle_distance < 50.0 && obstacle_speed + 0.5 < current_state.vx )
+            participant.maneuver_advice =
+              dynamics::ManeuverAdvice{ dynamics::SlowDown, std::min( current_state.vx, obstacle_speed ), obstacle_distance };
+          else
+            participant.maneuver_advice = dynamics::ManeuverAdvice{ dynamics::FollowRoute, max_speed, 0.0 };
+        }
       }
 
       next_state = dynamics::integrate_euler( current_state, vehicle_command, dt, motion_models[id] );
@@ -155,19 +190,16 @@ MultiAgentPID::plan_trajectories( dynamics::TrafficParticipantSet& traffic_parti
 }
 
 dynamics::VehicleCommand
-MultiAgentPID::compute_vehicle_command( const dynamics::VehicleStateDynamic&   current_state,
-                                        const dynamics::TrafficParticipantSet& traffic_participant_set, const int id,
-                                        const double& traffic_light_distance, int& overview_status, double& overview_object_distance )
+MultiAgentPID::compute_vehicle_command( const dynamics::VehicleStateDynamic& current_state,
+                                        const dynamics::TrafficParticipant& participant, double route_s, double stop_distance,
+                                        double obstacle_distance, double obstacle_speed )
 {
-  auto& participant = traffic_participant_set.participants.at( id );
-
-  double        state_s = participant.route->get_s( current_state );
   map::MapPoint current_position;
   current_position.x                = current_state.x;
   current_position.y                = current_state.y;
   double        lookahead_time      = 6.0;
   double        curve_minimum_speed = 2.5;
-  double        s_lookahead_point   = std::max( 3.0, state_s + lookahead_time * current_state.vx );
+  double        s_lookahead_point   = std::max( 3.0, route_s + lookahead_time * current_state.vx );
   map::MapPoint lookahead_point     = participant.route->get_map_point_at_s( s_lookahead_point );
   double        reference_yaw       = math::compute_yaw( current_position, lookahead_point );
   double        direction_error     = math::normalize_angle( reference_yaw - current_state.yaw_angle );
@@ -176,43 +208,9 @@ MultiAgentPID::compute_vehicle_command( const dynamics::VehicleStateDynamic&   c
     direction_error = 0.0;
   }
 
-  double goal_dist = participant.route->get_length() - state_s;
-
-  // 1. Compute lane-following (center-line) errors
   auto [error_lateral, error_yaw] = compute_lane_following_errors( current_state, participant );
+  const double idm_velocity = std::max( 0.0, compute_idm_velocity( obstacle_distance, stop_distance, obstacle_speed, current_state ) );
 
-  // 2. Calculate the nearest obstacle distance & offset
-  auto [closest_obstacle_distance, obstacle_speed, offset] = compute_distance_speed_offset_nearest_obstacle( traffic_participant_set, id );
-
-  if( id == 777 || participant.v2x_id.has_value() )
-  {
-    overview_object_distance = closest_obstacle_distance;
-
-    if( traffic_light_distance < goal_dist && traffic_light_distance < 20 )
-    {
-      overview_status = 3;
-    }
-    if( goal_dist < closest_obstacle_distance && goal_dist < 20 )
-    {
-      overview_status = 2;
-    }
-    if( closest_obstacle_distance < 10 )
-    {
-      overview_status = 1;
-    }
-    max_speed = max_allowed_speed;
-    goal_dist = std::min( goal_dist, traffic_light_distance );
-  }
-  else
-  {
-    max_speed = participant.state.vx + 1e-4;
-  }
-
-  // 3. Compute the “desired velocity” from IDM logic
-  double idm_velocity = compute_idm_velocity( closest_obstacle_distance, goal_dist, obstacle_speed, current_state );
-  idm_velocity        = std::max( 0.0, idm_velocity );
-
-  // 5. Construct base vehicle command: lane-following
   dynamics::VehicleCommand vehicle_command;
   vehicle_command.steering_angle = k_yaw * error_yaw + k_distance * error_lateral;
   vehicle_command.acceleration   = -k_speed * ( current_state.vx - idm_velocity ) - k_lateral_acc * abs( direction_error );

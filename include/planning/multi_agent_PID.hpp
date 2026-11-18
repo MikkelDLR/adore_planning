@@ -47,7 +47,7 @@ public:
   MultiAgentPID();
 
   void                 set_parameters( const std::map<std::string, double>& params );
-  MultiAgendPIDReponse plan_trajectories( dynamics::TrafficParticipantSet& traffic_participant_set );
+  MultiAgendPIDReponse plan_trajectories_and_maneuvers( dynamics::TrafficParticipantSet& traffic_participant_set );
 
 
   double       desired_acceleration        = 2.0;
@@ -78,10 +78,9 @@ public:
 private:
 
   dynamics::VehicleStateDynamic   get_current_state( const dynamics::TrafficParticipant& participant );
-  adore::dynamics::VehicleCommand compute_vehicle_command( const adore::dynamics::VehicleStateDynamic&   current_state,
-                                                           const adore::dynamics::TrafficParticipantSet& traffic_participant_set,
-                                                           const int id, const double& traffic_light_distance, int& overview_status,
-                                                           double& overview_object_distance );
+  dynamics::VehicleCommand compute_vehicle_command( const dynamics::VehicleStateDynamic& current_state,
+                                                    const dynamics::TrafficParticipant& participant, double route_s,
+                                                    double stop_distance, double obstacle_distance, double obstacle_speed );
 
   std::pair<double, double> compute_lane_following_errors( const dynamics::VehicleStateDynamic& current_state,
                                                            const dynamics::TrafficParticipant&  participant );
